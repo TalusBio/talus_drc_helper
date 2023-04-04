@@ -1,0 +1,9 @@
+
+.pytest_cache
+.streamlit
+.vscode
+.DS_Store
+venv
+
+**.egg-info
+**/__pycache__
