@@ -154,6 +154,8 @@ for k, d in drcs.items():
 
 final_drc_parameters = pd.DataFrame(final_drc_parameters)
 final_drc_plot_df = pd.concat(final_drc_plot_df)
+final_drc_plot_df = final_drc_plot_df[final_drc_plot_df["x"] <= ann_df["LogDose"].max()]
+final_drc_plot_df = final_drc_plot_df[final_drc_plot_df["x"] >= ann_df["LogDose"].min()]
 
 final_drc_plot = (
     alt.Chart(final_drc_plot_df)
