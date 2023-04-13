@@ -61,8 +61,16 @@ def fit_sigmoid(ydata: NDArray, xdata: NDArray) -> tuple[NDArray, NDArray]:
     """
     max_ys = max(ydata)
     min_ys = 0
-    p0 = [max_ys, np.median(xdata), 1, min_ys]  # this is an mandatory initial guess
-    popt, pcov = curve_fit(sigmoid, xdata, ydata, p0, method="dogbox")
+    median_ys = np.median(ydata)
+    median_x_data = np.median(xdata)
+    p0 = [max_ys, median_x_data, 1, min_ys]  # this is an mandatory initial guess
+    bounds = (
+        (median_ys, np.min(xdata), -np.inf, 0),
+        (max_ys, np.max(xdata), np.inf, median_ys),
+    )
+    popt, pcov = curve_fit(
+        sigmoid, xdata, ydata, p0, method="dogbox", maxfev=5000, bounds=bounds
+    )
     return popt, pcov
 
 

@@ -171,3 +171,51 @@ final_drc_plot = (
 # st.altair_chart(plot_chart, use_container_width=True)
 st.altair_chart(plot_chart + final_drc_plot, use_container_width=True)
 st.dataframe(final_drc_parameters)
+
+st.subheader("Grouped DRC plots")
+
+
+split_options_dict = {
+    'Replicate Groups': "Replicates",
+    'Plate Labels': "PlateLabel",
+}
+splitting_options = st.multiselect(
+    'How to split plots:',
+    list(split_options_dict.keys())[:2],
+    list(split_options_dict.keys()),
+    )
+
+if len(splitting_options) == 0:
+    st.warning("Please select at least one option")
+else:
+    splitting_options = [split_options_dict[x] for x in splitting_options]
+    split_df = final_drc_plot_df.groupby(splitting_options)
+    split_ann = ann_df.groupby(splitting_options)
+    for (i, k), (ii, kk) in zip(split_df, split_ann):
+        if len(splitting_options) == 1:
+            label = f"{splitting_options[0]}: {i}"
+        else:
+            label = " ".join([f"{x}: {y}" for x, y in zip(splitting_options, i)])
+
+        color_var = "PlateLabel" if "PlateLabel" not in splitting_options else "Replicates"
+        drc_plot = (
+            alt.Chart(k)
+            .mark_line()
+            .encode(
+                alt.X("x:Q", sort="descending", title="Reverse Log Dose"),
+                alt.Y("y"),
+                color=color_var,
+                strokeDash="PlateLabel",
+            ).properties(title=label)
+        )
+        ann_plot = (
+            alt.Chart(kk)
+            .mark_circle(size=20)
+            .encode(
+                alt.X("LogDose:Q", sort="descending", title="Reverse Log Dose"),
+                alt.Y("Intensity"),
+                color=color_var,
+            )
+        )
+        st.altair_chart(drc_plot + ann_plot, use_container_width=True)
+
