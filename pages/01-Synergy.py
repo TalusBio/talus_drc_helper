@@ -16,7 +16,7 @@ with st.sidebar:
     # Dilution Factor
     dilution_factor = st.number_input(
         "Dilution factor used for the serial dilution",
-        min_value=2.0,
+        min_value=1.1,
         max_value=100.0,
         step=0.01,
     )
