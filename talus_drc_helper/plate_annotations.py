@@ -22,8 +22,39 @@ PLATE_SIZES: dict[PLATE_SIZE, tuple[int, int]] = {
 
 @dataclass
 class PlateAnnotation:
+    """A class for annotating plates.
+
+    Parameters
+    ----------
+    plate_df : pd.DataFrame
+        A dataframe with the annotation. The index should be the row
+        names, and the columns should be the column names.
+    annotation_name : list[str]
+        The name of the annotation.
+
+    Examples
+    --------
+    >>> foo = PlateAnnotation.sample_96()
+    >>> # foo.plate_df.head()
+    #          1         2         3         4   ...
+    # A  0.850061  0.079929  0.280582  0.222699  ...
+    # B  0.554867  0.734452  0.928366  0.542993  ...
+    # C  0.132042  0.877312  0.620461  0.702565  ...
+    # D  0.434650  0.808087  0.462098  0.179796  ...
+    # E  0.182519  0.458260  0.912046  0.429932  ...
+    >>> foo.annotation_name
+    'Sample Annotation'
+    >>> # foo.as_long_df().head()
+    #       Row  Col  Sample Annotation
+    # 0   A    1           0.161664
+    # 1   B    1           0.339452
+    # 2   C    1           0.902536
+    # 3   D    1           0.022280
+    # 4   E    1           0.842034
+    """
+
     plate_df: pd.DataFrame
-    annotation_name: list[str]
+    annotation_name: str
 
     def as_long_df(self) -> pd.DataFrame:
         """Converts the annotation to a long dataframe.
@@ -70,6 +101,7 @@ class PlateAnnotation:
 
     @classmethod
     def sample_384(cls) -> PlateAnnotation:
+        """Returns a random 384 well plate annotation."""
         df = pd.DataFrame(
             np.random.rand(*DIMENSIONS_384_WELL),
             index=[ascii_uppercase[i] for i in range(16)],
@@ -79,6 +111,7 @@ class PlateAnnotation:
 
     @classmethod
     def sample_96(cls) -> PlateAnnotation:
+        """Returns a random 96 well plate annotation."""
         df = pd.DataFrame(
             np.random.rand(*DIMENSIONS_96_WELL),
             index=[ascii_uppercase[i] for i in range(8)],
@@ -90,12 +123,12 @@ class PlateAnnotation:
     def join(cls, *annotations: PlateAnnotation) -> pd.DataFrame:
         """Combines annotations and returns a dataframe.
 
-        Arguments:
-        ---------
-        annotations, PlateAnnotation
+        Parameters
+        ----------
+        annotations: PlateAnnotation
             The annotations you want to join.
 
-        Examples:
+        Examples
         --------
         >>> foo1 = PlateAnnotation.sample_96()
         >>> foo2 = PlateAnnotation.sample_96()
@@ -115,7 +148,7 @@ class PlateAnnotation:
         return out.reset_index()
 
     @classmethod
-    def from_dilution(
+    def from_dilution(  # noqa: C901
         cls,
         dil_factor: float,
         initial_dose: float,
@@ -237,12 +270,17 @@ class PlateAnnotation:
 
 @dataclass
 class AnnotatedPlate:
+    """Combines multiple annotations on a single plate."""
+
     annotation: list[PlateAnnotation]
 
-    def fit_drcs(self):
+    def fit_drcs(self) -> None:
+        """Fits dose response curves to all annotations."""
         df = self.as_df()
         df = df.dropna()
         [x for x in df.columns if x not in ["Row", "Col", "Dose"]]
+        raise NotImplementedError
 
     def as_df(self) -> pd.DataFrame:
+        """Returns a dataframe with all annotations."""
         return PlateAnnotation.join(*self.annotation)

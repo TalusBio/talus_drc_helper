@@ -67,7 +67,12 @@ ignore = ["D213", "ANN101", "D203", "D100", "ANN102", "D401"]
 fix = true
 
 [tool.ruff.per-file-ignores]
+"talus_drc_helper/__init__.py" = ["D104"]
 "tests/*.py" = ["ANN"]
+"talus_drc_helper/fit.py" = ["N806", "N803"]
+# To maintain consisetency with the sklearn api,
+# I am ignoring capitalization of variables in that file.
+# X is used A LOT thoughout the API
 
 [tool.black]
 line-length = 88

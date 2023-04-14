@@ -131,7 +131,7 @@ plot_chart = (
     alt.Chart(ann_df)
     .mark_circle(size=20)
     .encode(
-        alt.X("LogDose:Q", sort="descending", title="Reverse Log Dose"),
+        alt.X("LogDose:Q", sort="ascending", title="Log Dose"),
         # x="Dose",
         alt.Y("Intensity"),
         color="Replicates",
@@ -149,6 +149,9 @@ for k, d in drcs.items():
     params = d.parameters
     params["Log10Inflection"] = params["Inflection"]
     params["Inflection"] = 10 ** params["Inflection"]
+    params["LD50"] = np.exp(d.ld_quantile(1-0.5))
+    params["LD5"] = np.exp(d.ld_quantile(1-0.05))
+    params["LD95"] = np.exp(d.ld_quantile(1-0.95))
     params.update({"PlateLabel": k[0], "Replicates": k[1]})
     final_drc_parameters.append(params)
 
@@ -161,7 +164,7 @@ final_drc_plot = (
     alt.Chart(final_drc_plot_df)
     .mark_line()
     .encode(
-        alt.X("x:Q", sort="descending", title="Reverse Log Dose"),
+        alt.X("x:Q", sort="ascending", title="Log Dose"),
         alt.Y("y"),
         color="Replicates",
         strokeDash="PlateLabel",
@@ -172,18 +175,26 @@ final_drc_plot = (
 st.altair_chart(plot_chart + final_drc_plot, use_container_width=True)
 st.dataframe(final_drc_parameters)
 
+st.download_button(
+   "Press to Download (CSV, can open in Excel)",
+   final_drc_parameters.to_csv(index=False).encode('utf-8'),
+   "file.csv",
+   "text/csv",
+   key='download-csv'
+)
+
 st.subheader("Grouped DRC plots")
 
 
 split_options_dict = {
-    'Replicate Groups': "Replicates",
-    'Plate Labels': "PlateLabel",
+    "Replicate Groups": "Replicates",
+    "Plate Labels": "PlateLabel",
 }
 splitting_options = st.multiselect(
-    'How to split plots:',
+    "How to split plots:",
     list(split_options_dict.keys())[:2],
     list(split_options_dict.keys()),
-    )
+)
 
 if len(splitting_options) == 0:
     st.warning("Please select at least one option")
@@ -197,25 +208,27 @@ else:
         else:
             label = " ".join([f"{x}: {y}" for x, y in zip(splitting_options, i)])
 
-        color_var = "PlateLabel" if "PlateLabel" not in splitting_options else "Replicates"
+        color_var = (
+            "PlateLabel" if "PlateLabel" not in splitting_options else "Replicates"
+        )
         drc_plot = (
             alt.Chart(k)
             .mark_line()
             .encode(
-                alt.X("x:Q", sort="descending", title="Reverse Log Dose"),
+                alt.X("x:Q", sort="ascending", title="Log Dose"),
                 alt.Y("y"),
                 color=color_var,
                 strokeDash="PlateLabel",
-            ).properties(title=label)
+            )
+            .properties(title=label)
         )
         ann_plot = (
             alt.Chart(kk)
             .mark_circle(size=20)
             .encode(
-                alt.X("LogDose:Q", sort="descending", title="Reverse Log Dose"),
+                alt.X("LogDose:Q", sort="ascending", title="Log Dose"),
                 alt.Y("Intensity"),
                 color=color_var,
             )
         )
         st.altair_chart(drc_plot + ann_plot, use_container_width=True)
-

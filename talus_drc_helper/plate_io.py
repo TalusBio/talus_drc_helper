@@ -1,9 +1,17 @@
+import os
 from io import StringIO
 
 import pandas as pd
 
 
 def read_synergy_str(lines: list[str]) -> pd.DataFrame:
+    """Reads the text file from the Synergy to a dataframe.
+
+    Parameters
+    ----------
+    lines : list[str]
+        The lines of the text file.
+    """
     assert any("Synergy Neo2" in x for x in lines)
 
     metadata = []
@@ -23,7 +31,7 @@ def read_synergy_str(lines: list[str]) -> pd.DataFrame:
     return results
 
 
-def read_synergy_txt(filepath) -> pd.DataFrame:
+def read_synergy_txt(filepath: os.PathLike) -> pd.DataFrame:
     """Reads the text file from the Synergy to a dataframe."""
     with open(file=filepath) as f:
         lines = f.read()

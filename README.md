@@ -15,3 +15,9 @@ python -m pip install .
 ```
 streamlit run app.py
 ```
+
+## Checking that everything is developed to standards
+
+```
+pre-commit run --all-files
+```

@@ -6,6 +6,15 @@ from talus_drc_helper.fit import fit_sigmoid, sigmoid
 
 @pytest.fixture
 def sample_curve():
+    """General fixture for a sample curve to fit.
+
+    Returns
+    -------
+    y_values : np.ndarray
+        The y values of the curve.
+    x_values : np.ndarray
+        The x values of the curve.
+    """
     y_values = np.array(
         [
             202,
@@ -30,6 +39,10 @@ def sample_curve():
 
 
 def test_fitting_drc_works(sample_curve):
+    """Tests that the fitting works for a sample curve.
+
+    And that parameters are sound.
+    """
     y_values, x_values = sample_curve
     popt, cs = fit_sigmoid(y_values, np.log(x_values))
     x = np.linspace(np.log(x_values).min(), np.log(x_values).max(), 1000)
