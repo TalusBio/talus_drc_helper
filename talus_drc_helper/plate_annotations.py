@@ -555,7 +555,8 @@ class AnnotatedPlate:
         # cell line!
 
         """
-        df = self.as_df(drop_missing_cols=grouping_cols)
+        df = self.as_df(drop_missing_cols=[value_column, normalization_column])
+
         missing_filter = df[normalization_column].isna()
         if missing_filter.any():
             warnings.warn(
@@ -570,7 +571,7 @@ class AnnotatedPlate:
             )
         except AttributeError:
             normalization_filter = df[normalization_column] == 0
-        normalization_df = df[normalization_filter]
+        normalization_df = df[normalization_filter].copy().reset_index(drop=True)
         to_normalize_df = df[~normalization_filter].copy().reset_index(drop=True)
 
         if len(normalization_df) == 0:
@@ -595,12 +596,16 @@ class AnnotatedPlate:
             return self.from_long_df(to_normalize_df.reset_index(drop=True).copy())
 
         else:
+            norm_factor_df = normalization_df[grouping_cols + [value_column]]
+            norm_factor_df.dropna(axis=1, how="all", inplace=True)
+            norm_grouping_cols = [x for x in grouping_cols if x in norm_factor_df.columns]
+
             norm_factor = (
-                normalization_df[grouping_cols + [value_column]]
-                .groupby(grouping_cols)
+                norm_factor_df
+                .groupby(norm_grouping_cols)
                 .mean(numeric_only=False)[value_column]
             )
-            to_normalize_df = to_normalize_df.merge(norm_factor, on=grouping_cols)
+            to_normalize_df = to_normalize_df.merge(norm_factor, on=norm_grouping_cols)
             to_normalize_df[rename_column] = (
                 to_normalize_df[value_column + "_x"]
                 / to_normalize_df[value_column + "_y"]
