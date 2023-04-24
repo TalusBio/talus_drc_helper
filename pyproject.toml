@@ -24,7 +24,7 @@ dependencies = [
     "uniplot >= 0.9.1",
     "scipy",
     "scikit-learn",
-    "watchdog"
+    "openpyxl",
 ]
 dynamic = ["version"]
 
@@ -38,6 +38,11 @@ test = [
     "pytest >= 7.2.0",
     "pytest-datadir >= 1.4.1",
     "pytest-cov >= 4.0.0",
+]
+dev = [
+    "black",
+    "ruff",
+    "ipykernel",
 ]
 
 

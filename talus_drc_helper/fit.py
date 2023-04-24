@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import warnings
+from dataclasses import dataclass
+
 import altair as alt
 import numpy as np
 import pandas as pd
@@ -59,6 +62,9 @@ def fit_sigmoid(ydata: NDArray, xdata: NDArray) -> tuple[NDArray, NDArray]:
     pcov
         Estimated covariances
     """
+    # TODO add an option to normalize the data prior to fitting
+    # it seems like the fit is much better when data is in similar ranges
+
     max_ys = max(ydata)
     min_ys = 0
     median_ys = np.median(ydata)
@@ -104,9 +110,19 @@ class DRCEstimator(BaseEstimator):
             Y values to pass to the function.
         """
         if self.log_transform_x:
-            X = np.log(X)  # noqa: N806
-        self.popt, self.pcov = fit_sigmoid(ydata=y, xdata=X)
-        self.residuals = (((y - sigmoid(X, *self.popt)) / self.popt[0]) ** 2).mean()
+            X = np.log10(X)  # noqa: N806
+
+        non_inf_non_missing_X = np.isfinite(X)
+        if np.any(non_inf_non_missing_X):
+            warnings.warn(
+                "Some X values are infinite or missing. They will be ignored."
+            )
+        self.popt, self.pcov = fit_sigmoid(
+            ydata=y[non_inf_non_missing_X], xdata=X[non_inf_non_missing_X]
+        )
+        self.residuals = np.sqrt(
+            (((y - sigmoid(X, *self.popt)) / self.popt[0]) ** 2).mean()
+        )
 
         return self
 
@@ -119,7 +135,7 @@ class DRCEstimator(BaseEstimator):
             X values to pass to the function.
         """
         if self.log_transform_x:
-            X = np.log(X)
+            X = np.log10(X)
 
         y = sigmoid(X, *self.popt)
         return y
@@ -161,6 +177,34 @@ class DRCEstimator(BaseEstimator):
             "NormalizedResiduals": self.residuals,
         }
 
+    def report_df(self):
+        """Returns a pandas dataframe with the parameters of the fit.
+
+        Returns
+        -------
+        pd.DataFrame
+            A dataframe with the parameters of the fit.
+            The named parameters are:
+                - OutputScaling
+                - Inflection
+                - InputScaling
+                - Bias
+                - NormalizedResiduals
+                - AbsIC_50
+                - AbsIC_5
+                - AbsIC_95
+        """
+        params = self.parameters
+        params["Log10Inflection"] = params["Inflection"]
+        params["AbsIC_5"] = self.ld_quantile(1 - 0.05)
+        params["AbsIC_50"] = self.ld_quantile(1 - 0.5)
+        params["AbsIC_95"] = self.ld_quantile(1 - 0.95)
+        if self.log_transform_x:
+            for key in ["Inflection"]:
+                params[key] = 10 ** params[key]
+
+        return pd.DataFrame([params])
+
     @property
     def ic50(self) -> float:
         """Returns the IC50 of the fit.
@@ -173,7 +217,7 @@ class DRCEstimator(BaseEstimator):
         if hasattr(self, "popt"):
             out = self.popt[1]
             if self.log_transform_x:
-                out = np.exp(out)
+                out = 10**out
             return out
         raise RuntimeError(
             "The DRC estimator has not been fit yet!, please use the fit method before"
@@ -201,10 +245,10 @@ class DRCEstimator(BaseEstimator):
         x0 = self.popt[1]
         k = self.popt[2]
 
-        x = (np.log((1 / q) - 1) / -k) + x0
+        x = (np.log10((1 / q) - 1) / -k) + x0
 
         if self.log_transform_x:
-            x = np.exp(x)
+            x = 10**x
         return x
 
     @property
@@ -212,7 +256,7 @@ class DRCEstimator(BaseEstimator):
         side = 10 * 1 / self.popt[2]
         xs = np.linspace(start=self.popt[1] - side, stop=self.popt[1] + side, num=200)
         if self.log_transform_x:
-            xs = np.exp(xs)
+            xs = 10**xs
         return xs
 
     @property
@@ -247,6 +291,57 @@ class DRCEstimator(BaseEstimator):
             x, y = self._sample_curve
 
         uniplot.plot(xs=x, ys=y, lines=True, x_as_log=self.log_transform_x)
+
+
+@dataclass
+class DRCEstimatorGroup:
+    estimators: list[DRCEstimator]
+    grouping_variables: list[str]
+    groupings: tuple[tuple[str]]
+    target_variable: str
+    dose_variable: str
+
+    def __post_init__(self):
+        if len(self.groupings) != len(self.estimators):
+            raise ValueError(
+                "The number of estimators and groupings should be the same"
+            )
+        if len(self.grouping_variables) != len(self.groupings[0]):
+            raise ValueError(
+                "The number of grouping variables should be the same as the number of"
+                " groupings"
+            )
+        if isinstance(self.groupings[0], str):
+            self.groupings = tuple([(g,) for g in self.groupings])
+
+    @property
+    def _sample_curve_df(self) -> pd.DataFrame:
+        to_concat = []
+        mapper = {"x": self.dose_variable, "y": self.target_variable}
+        for est, grouping in zip(self.estimators, self.groupings):
+            df = est._sample_curve_df
+            for g, v in zip(grouping, self.grouping_variables):
+                df[v] = g
+
+            df.rename(columns=mapper, inplace=True)
+            to_concat.append(df)
+        out = pd.concat(to_concat)
+        return out
+
+    def report_df(self) -> pd.DataFrame:
+        to_concat = []
+        for est, grouping in zip(self.estimators, self.groupings):
+            df = est.report_df()
+            for g, v in zip(grouping, self.grouping_variables):
+                df[v] = g
+            to_concat.append(df)
+        out = pd.concat(to_concat)
+        # Reorder the columns
+        out = out[
+            list(self.grouping_variables)
+            + list(out.columns.difference(self.grouping_variables))
+        ]
+        return out
 
 
 if __name__ == "__main__":

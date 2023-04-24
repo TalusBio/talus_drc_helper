@@ -38,3 +38,25 @@ def read_synergy_txt(filepath: os.PathLike) -> pd.DataFrame:
 
     lines = lines.split("\n")
     return read_synergy_str(lines)
+
+
+def read_dispenser_text(str) -> pd.DataFrame:
+    return read_dispenser_excel(StringIO(str))
+
+
+def read_dispenser_excel(filepath: str) -> pd.DataFrame:
+    """Reads the excel file from the dispenser to a dataframe."""
+    df = pd.read_excel(filepath, sheet_name="Tabular detail")
+    df.columns = [x.replace("\n", " ").strip() for x in df.columns]
+
+    # This section is to deal with the fact that the dispenser
+    # will generate dilutions by adding DMSO to the wells. Therefore
+    # Multiple compounds are added to each well.
+    # This attempts to remove the dmso from the wells that also have a compound.
+    df = pd.concat(
+        [
+            x[x["Dispensed concentration"].isna().__invert__()] if len(x) > 1 else x
+            for _, x in df.groupby(["Plate", "Dispensed well"])
+        ]
+    )
+    return df
