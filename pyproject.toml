@@ -26,6 +26,8 @@ dependencies = [
     "scikit-learn",
     "openpyxl",
     "beautifulsoup4",
+    "matplotlib",
+    "vizta",
 ]
 dynamic = ["version"]
 
