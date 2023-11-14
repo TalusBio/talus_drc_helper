@@ -32,15 +32,22 @@ def get_data() -> tuple[AnnotatedPlate, dict[str, int]]:
         tmp = pd.read_excel(excel_file, sheet_name="cell_count__time0")
         count_t0_map = dict(zip(tmp["cell_line"], tmp["cell_count__time0"]))
 
-        metadata = pd.read_excel(excel_file, sheet_name="metadata", header=1)
+        metadata = pd.read_excel(excel_file, sheet_name="metadata", header=0)
         metadata.columns = [x.lower() for x in metadata.columns]
         metadata_dict = dict(zip(metadata["key"], metadata["value"]))
+        metadata_dict = {
+            k.lower().replace(" ", "_"): v for k, v in metadata_dict.items()
+        }
 
     if not REQUIRED_METADATA.issubset(set(metadata_dict.keys())):
+        not_found = REQUIRED_METADATA - set(metadata_dict.keys())
         st.error(
             "Missing required metadata, please make sure you have the following keys:"
             f" {REQUIRED_METADATA}"
         )
+        st.error(f"Missing keys: {not_found}")
+        st.info("Metadata:")
+        st.dataframe(metadata)
         st.stop()
     ann = AnnotatedPlate.from_excel_bytes(infile.getvalue(), skip_bad=True)
     return ann, count_t0_map, metadata
