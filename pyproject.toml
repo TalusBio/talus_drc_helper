@@ -25,6 +25,7 @@ dependencies = [
     "scipy",
     "scikit-learn",
     "openpyxl",
+    "beautifulsoup4",
 ]
 dynamic = ["version"]
 

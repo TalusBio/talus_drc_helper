@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import os
 import warnings
-from io import BytesIO
-
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from io import BytesIO
 from string import ascii_uppercase
 from typing import Any, Literal
 
 import altair as alt
 import numpy as np
 import pandas as pd
-from pandas import ExcelWriter, ExcelFile
+from loguru import logger
+from pandas import ExcelFile, ExcelWriter
 
 from talus_drc_helper.fit import DRCEstimator, DRCEstimatorGroup
 
@@ -70,10 +70,12 @@ class PlateAnnotation:
         self.plate_df.columns = self.plate_df.columns.astype(str)
         self.plate_df.columns = self.plate_df.columns.str.upper()
         for x in self.plate_df.index:
-            assert x in index_range, f"'{x}' not in {index_range}"
+            if x not in index_range:
+                raise ValueError(f"'{x}' not in {index_range}, unexpected row name")
 
         for c in self.plate_df.columns:
-            assert c in col_range, f"'{c}' not in {col_range}"
+            if c not in col_range:
+                raise ValueError(f"'{c}' not in {col_range}, unexpected column name")
 
     def as_long_df(self) -> pd.DataFrame:
         """Converts the annotation to a long dataframe.
@@ -106,7 +108,7 @@ class PlateAnnotation:
         Examples
         --------
         >>> foo = PlateAnnotation.sample_96()
-        >>> foo.to_excell("foo.xlsx")
+        >>> foo.to_excel("foo.xlsx")
         """
         self.plate_df.to_excel(excel_writter, sheet_name=self.annotation_name)
 
@@ -400,7 +402,12 @@ class AnnotatedPlate:
 
         for x in self.annotation:
             x.plate_df.to_excel(excel_writer=writer, sheet_name=x.annotation_name)
-        writer.save()
+
+        table_metadata = pd.DataFrame(
+            self.plate_level_annotations.items(), columns=["Key", "Value"]
+        )
+        table_metadata.to_excel(writer, sheet_name="metadata", index=False)
+        writer.close()
 
     def to_excel_bytes(self) -> bytes:
         """Returns the excel file as bytes."""
@@ -409,21 +416,38 @@ class AnnotatedPlate:
             out = bio.getvalue()
         return out
 
-    def from_excel_bytes(self, excel_bytes: bytes) -> None:
+    @staticmethod
+    def from_excel_bytes(excel_bytes: bytes, skip_bad: bool = False) -> AnnotatedPlate:
         """Reads the excel file from bytes."""
         with BytesIO(excel_bytes) as bio:
-            self.from_excel(bio)
+            out = AnnotatedPlate.from_excel(bio, skip_bad=skip_bad)
+        return out
 
-    def from_excel(self, excel_reader: os.PathLike | ExcelFile) -> None:
+    @staticmethod
+    def from_excel(
+        excel_reader: os.PathLike | ExcelFile, skip_bad: bool = False
+    ) -> AnnotatedPlate:
         """Reads the annotations from an excel file."""
         if isinstance(excel_reader, ExcelFile):
             reader = excel_reader
         else:
             reader = ExcelFile(excel_reader)
 
+        out = []
+        failed_import = []
         for x in reader.sheet_names:
-            df = pd.read_excel(reader, sheet_name=x, index_col=0)
-            self.annotation.append(PlateAnnotation(df, annotation_name=x))
+            try:
+                df = pd.read_excel(reader, sheet_name=x, index_col=0)
+                out.append(PlateAnnotation(df, annotation_name=x))
+            except ValueError as e:
+                if "unexpected" in str(e) and "name" in str(e) and skip_bad:
+                    failed_import.append(x)
+                else:
+                    raise e
+
+        if failed_import:
+            logger.warning("Failed to import sheets: {}", failed_import)
+        return AnnotatedPlate(out)
 
     def fit_drcs(self) -> None:
         """Fits dose response curves to all annotations."""
@@ -493,6 +517,79 @@ class AnnotatedPlate:
             annots.append(PlateAnnotation.from_long_df(df, col))
         return cls(annots)
 
+    def widen_norm_column(
+        self,
+        grouping_cols: list[str] | None,
+        normalization_regex: str = "DMSO",
+        normalization_column: str = "Compound",
+        value_column: str = "Intensity",
+        keep_control: bool = False,
+    ):
+        df = self.as_df(drop_missing_cols=[value_column, normalization_column])
+
+        missing_filter = df[normalization_column].isna()
+        if missing_filter.any():
+            warnings.warn(
+                "Missing values found in value column."
+                f" Dropping. {missing_filter.sum()}"
+            )
+
+        df = df[~missing_filter].copy().reset_index(drop=True)
+        try:
+            normalization_filter = df[normalization_column].str.match(
+                normalization_regex
+            )
+        except AttributeError:
+            normalization_filter = df[normalization_column] == 0
+
+        normalization_df = df[normalization_filter].copy().reset_index(drop=True)
+
+        if not keep_control:
+            to_normalize_df = df[~normalization_filter].copy().reset_index(drop=True)
+        else:
+            to_normalize_df = df.copy().reset_index(drop=True)
+
+        if len(normalization_df) == 0:
+            raise ValueError("No normalization compound found.")
+
+        if len(to_normalize_df) == 0:
+            raise ValueError("No compounds to normalize.")
+
+        if isinstance(grouping_cols, str):
+            grouping_cols = [grouping_cols]
+
+        if grouping_cols is not None and normalization_column in grouping_cols:
+            warnings.warn("Normalization column is in grouping columns. Will remove it")
+            grouping_cols = [x for x in grouping_cols if x != normalization_column]
+
+        if grouping_cols is None or len(grouping_cols) == 0:
+            norm_factor = normalization_df[value_column].mean()
+            to_normalize_df["NORM_FACTOR"] = norm_factor
+
+        else:
+            norm_factor_df = normalization_df[grouping_cols + [value_column]]
+            norm_factor_df.dropna(axis=1, how="all", inplace=True)
+            norm_grouping_cols = [
+                x for x in grouping_cols if x in norm_factor_df.columns
+            ]
+
+            norm_factor = (
+                norm_factor_df.groupby(norm_grouping_cols)
+                .mean(numeric_only=False)[value_column]
+                .reset_index()
+            )
+
+            to_normalize_df = to_normalize_df.merge(norm_factor, on=norm_grouping_cols)
+            to_normalize_df.rename(
+                columns={
+                    value_column + "_y": "NORM_FACTOR",
+                    value_column + "_x": value_column,
+                },
+                inplace=True,
+            )
+
+        return to_normalize_df
+
     def normalize_to_compound(
         self,
         grouping_cols: list[str] | None,
@@ -555,65 +652,19 @@ class AnnotatedPlate:
         # cell line!
 
         """
-        df = self.as_df(drop_missing_cols=[value_column, normalization_column])
-
-        missing_filter = df[normalization_column].isna()
-        if missing_filter.any():
-            warnings.warn(
-                "Missing values found in value column."
-                f" Dropping. {missing_filter.sum()}"
-            )
-
-        df = df[~missing_filter].copy().reset_index(drop=True)
-        try:
-            normalization_filter = df[normalization_column].str.match(
-                normalization_regex
-            )
-        except AttributeError:
-            normalization_filter = df[normalization_column] == 0
-        normalization_df = df[normalization_filter].copy().reset_index(drop=True)
-        to_normalize_df = df[~normalization_filter].copy().reset_index(drop=True)
-
-        if len(normalization_df) == 0:
-            raise ValueError("No normalization compound found.")
-
-        if len(to_normalize_df) == 0:
-            raise ValueError("No compounds to normalize.")
-
+        to_normalize_df = self.widen_norm_column(
+            grouping_cols=grouping_cols,
+            normalization_column=normalization_column,
+            normalization_regex=normalization_regex,
+            value_column=value_column,
+        )
         if rename_column is None:
             rename_column = value_column
-
-        if isinstance(grouping_cols, str):
-            grouping_cols = [grouping_cols]
-
-        if normalization_column in grouping_cols:
-            warnings.warn("Normalization column is in grouping columns. Will remove it")
-            grouping_cols = [x for x in grouping_cols if x != normalization_column]
-
-        if grouping_cols is None or len(grouping_cols) == 0:
-            norm_factor = normalization_df[value_column].mean()
-            to_normalize_df[rename_column] = to_normalize_df[value_column] / norm_factor
-            return self.from_long_df(to_normalize_df.reset_index(drop=True).copy())
-
-        else:
-            norm_factor_df = normalization_df[grouping_cols + [value_column]]
-            norm_factor_df.dropna(axis=1, how="all", inplace=True)
-            norm_grouping_cols = [x for x in grouping_cols if x in norm_factor_df.columns]
-
-            norm_factor = (
-                norm_factor_df
-                .groupby(norm_grouping_cols)
-                .mean(numeric_only=False)[value_column]
-            )
-            to_normalize_df = to_normalize_df.merge(norm_factor, on=norm_grouping_cols)
-            to_normalize_df[rename_column] = (
-                to_normalize_df[value_column + "_x"]
-                / to_normalize_df[value_column + "_y"]
-            )
-            to_normalize_df = to_normalize_df.drop(
-                [x for x in to_normalize_df.columns if x.endswith("_y")], axis=1
-            )
-            return self.from_long_df(to_normalize_df)
+        to_normalize_df[rename_column] = (
+            to_normalize_df[value_column] / to_normalize_df["NORM_FACTOR"]
+        )
+        del to_normalize_df["NORM_FACTOR"]
+        return self.from_long_df(to_normalize_df.reset_index(drop=True).copy())
 
 
 @dataclass
@@ -663,10 +714,17 @@ class AnnotatedPlateSet:
     @classmethod
     def from_dispenser_df(cls, df: pd.DataFrame) -> AnnotatedPlateSet:
         """Creates an annotated plate from a dispenser dataframe."""
-        rows = df["Dispensed well"].str[0]
-        cols = df["Dispensed well"].str[1:].astype(int)
-        concentration = df["Dispensed concentration"]
-        compound = df["Fluid name"]
+        try:
+            rows = df["Dispensed well"].str[0]
+            cols = df["Dispensed well"].str[1:].astype(int)
+            concentration = df["Dispensed concentration"]
+            compound = df["Fluid name"]
+        except KeyError:
+            rows = df["Dispensed_well"].str[0]
+            cols = df["Dispensed_well"].str[1:].astype(int)
+            concentration = df["Dispensed_concentration"]
+            compound = df["Fluid_name"]
+
         plate_id = df["Plate"]
 
         unique_plates = plate_id.unique()
@@ -686,6 +744,13 @@ class AnnotatedPlateSet:
             x = x.set_index(["Row", "Col"])
             x = x.drop("Plate", axis=1)
             for e in ["Concentration", "Compound"]:
+                indexing_cols = x[e].to_frame().reset_index()[["Row", "Col"]]
+                # Report if there are any duplicates
+                if indexing_cols.duplicated().any():
+                    warnings.warn("Duplicate values found in df. Check consistency")
+                    report = indexing_cols[indexing_cols.duplicated()]
+                    warnings.warn(f"Duplicate values: {report}")
+                    raise ValueError
                 vals = x[e].to_frame().reset_index().pivot(index="Row", columns="Col")
                 tmp_df2 = pd.DataFrame(
                     vals.values, index=vals.index, columns=vals.columns.droplevel(0)

@@ -7,6 +7,7 @@ import altair as alt
 import numpy as np
 import pandas as pd
 import uniplot
+from loguru import logger
 from numpy.typing import NDArray
 from scipy.optimize import curve_fit
 from sklearn.base import BaseEstimator
@@ -69,11 +70,47 @@ def fit_sigmoid(ydata: NDArray, xdata: NDArray) -> tuple[NDArray, NDArray]:
     min_ys = 0
     median_ys = np.median(ydata)
     median_x_data = np.median(xdata)
-    p0 = [max_ys, median_x_data, 1, min_ys]  # this is an mandatory initial guess
+
+    # Check if the data is increasing or decreasing
+    data_decreasing = True
+    if ydata[xdata < median_x_data].mean() > ydata[xdata > median_x_data].mean():
+        # logger.debug("Data is increasing, flipping the slope")
+        data_decreasing = False
+
+    prior_slope = 1 if data_decreasing else -1
+    prior_range = max_ys - min(ydata)
+
+    p0 = [
+        prior_range,
+        median_x_data,
+        prior_slope,
+        min_ys,
+    ]  # this is an mandatory initial guess
+    bias_lower_bound = 0
+    bias_upper_bound = median_ys
+    lower_bound_L = prior_range / 2
+    higher_bound_L = 2 * prior_range
+    if np.any(ydata < 0):
+        warnings.warn("Some Y values are negative, this may cause issues with the fit")
+        # This is OK if we are calculating GR50s
+        bias_lower_bound = -1
+        bias_upper_bound = 2
+        p0[-1] = -0.99
+        lower_bound_L = 0.1
+        higher_bound_L = 2
+        p0[0] = min(p0[0], 2)
+
     bounds = (
-        (median_ys, np.min(xdata), -np.inf, 0),
-        (max_ys, np.max(xdata), np.inf, median_ys),
+        (lower_bound_L, np.min(xdata), -np.inf, bias_lower_bound),
+        (higher_bound_L, np.max(xdata), np.inf, bias_upper_bound),
     )
+
+    for p, b, bu in zip(p0, *bounds):
+        if (p < b) or (p > bu):
+            raise ValueError(
+                f"Initial guess {p} is not within the bounds {b} < {p} < {bu}"
+            )
+
     popt, pcov = curve_fit(
         sigmoid, xdata, ydata, p0, method="dogbox", maxfev=5000, bounds=bounds
     )
@@ -244,8 +281,16 @@ class DRCEstimator(BaseEstimator):
         """
         x0 = self.popt[1]
         k = self.popt[2]
+        L = self.popt[0]
+        b = self.popt[3]
+        if L > 3:
+            # L == 2 is normal for GR50 fits
+            # L == 1 is normal for LD50 fits
+            logger.warning(
+                f"The output scaling is greater than 3 {L}, this may be an issue"
+            )
 
-        x = (np.log10((1 / q) - 1) / -k) + x0
+        x = (np.log((L / (q - b)) - 1) / -k) + x0
 
         if self.log_transform_x:
             x = 10**x
@@ -280,8 +325,36 @@ class DRCEstimator(BaseEstimator):
         )
         return base_chart
 
-    def _plot(self, X, y):  # noqa
-        raise NotImplementedError
+    def _plot(self, target_file, title, X, y, ax=None):  # noqa
+        passed_ax = ax is not None
+        if not passed_ax:
+            import vizta
+            from matplotlib import pyplot as plt
+
+            vizta.mpl.set_theme()
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        _x, _y = self._sample_curve
+        ax.plot(_x, _y, label=title)
+        ax.scatter(X, y, label=title)
+        hlines_show = [0, 0.5, 1]
+        if np.any(y < 0):
+            hlines_show.append(-1)
+
+        ax.hlines(
+            y=hlines_show,
+            xmin=min(_x),
+            xmax=max(_x),
+            linestyles="dashed",
+            color="gray",
+            alpha=0.3,
+        )
+        ax.set_xscale("log")
+
+        if not passed_ax:
+            ax.set_title(title)
+            if target_file is not None:
+                fig.savefig(target_file, bbox_inches="tight", dpi=175)
+            plt.show()
 
     def terminal_plot(self, x: NDArray = None, y: NDArray = None) -> None:
         """Plots the fit in the terminal."""

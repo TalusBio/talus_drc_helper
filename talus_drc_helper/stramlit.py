@@ -29,7 +29,8 @@ def normalize_if_wanted(ann_plate_set: AnnotatedPlateSet, grouping_cols):
             )
         except ValueError:
             st.error(
-                "Was not able to normalize with those parameters, Please try a different column or a different value."
+                "Was not able to normalize with those parameters, Please try a"
+                " different column or a different value."
             )
             raise
             st.stop()
@@ -103,7 +104,10 @@ def fit_and_show_ann_plate(ann_plate: AnnotatedPlateSet):
     curve_data = curve_data[curve_data[dose_var] >= min_x]
 
     color_var = st.selectbox("Color By", options=group_cols, index=0)
-    split_var = st.selectbox("Split By", options=[None] + group_cols, index=len(group_cols))
+    split_var = st.selectbox(
+        "Split By", options=[None] + group_cols, index=len(group_cols)
+    )
+
     def encode_drc(chart):
         out = chart.encode(
             x=alt.X(f"{dose_var}", scale=alt.Scale(type="log")),

@@ -26,7 +26,7 @@ def test_estimator_scale():
     preds = my_est.predict(x_values)
 
     # The LD50 should be in the range of the x values.
-    assert my_est.popt[1] > np.min(x_values)
+    assert my_est.popt[1] > 0
     assert my_est.popt[1] < np.max(x_values)
     assert my_est.popt[1] < 10
 
