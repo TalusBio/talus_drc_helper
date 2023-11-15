@@ -28,6 +28,7 @@ dependencies = [
     "beautifulsoup4",
     "matplotlib",
     "vizta",
+    "lxml",
 ]
 dynamic = ["version"]
 
