@@ -19,25 +19,53 @@ from talus_drc_helper.plate_annotations import (
 
 REQUIRED_METADATA = {"plate_id", "user", "protocol_id"}
 
+"""
+TODO:
+improve error messages on:
+1. When a control is not defined it shows the traceback:
+File "/mount/src/talus_drc_helper/pages/03-AnnotationSheet.py", line 68, in <module>
+    raise ValueError("Normalization has to be either to 'CTRL' or 'DMSO'")
+
+2. on missing metadata, add a suggestion on how to fix it.
+
+"""
+
 
 def get_data() -> tuple[AnnotatedPlate, dict[str, int]]:
     st.markdown("## Input Data\n")
-    infile = st.file_uploader("Input file to use", accept_multiple_files=False)
+    infile = st.file_uploader(
+        "Input file to use",
+        accept_multiple_files=False,
+        type=["xlsx"],
+    )
     if infile is None:
         st.warning("No files uploaded")
         st.stop()
 
-    with BytesIO(infile.getvalue()) as bio:
-        excel_file = ExcelFile(bio)
-        tmp = pd.read_excel(excel_file, sheet_name="cell_count__time0")
-        count_t0_map = dict(zip(tmp["cell_line"], tmp["cell_count__time0"]))
+    try:
+        with BytesIO(infile.getvalue()) as bio:
+            excel_file = ExcelFile(bio)
+            tmp = pd.read_excel(excel_file, sheet_name="cell_count__time0")
+            count_t0_map = dict(zip(tmp["cell_line"], tmp["cell_count__time0"]))
 
-        metadata = pd.read_excel(excel_file, sheet_name="metadata", header=0)
-        metadata.columns = [x.lower() for x in metadata.columns]
-        metadata_dict = dict(zip(metadata["key"], metadata["value"]))
-        metadata_dict = {
-            k.lower().replace(" ", "_"): v for k, v in metadata_dict.items()
-        }
+            metadata = pd.read_excel(excel_file, sheet_name="metadata", header=0)
+            metadata.columns = [x.lower() for x in metadata.columns]
+            metadata_dict = dict(zip(metadata["key"], metadata["value"]))
+            metadata_dict = {
+                k.lower().replace(" ", "_"): v for k, v in metadata_dict.items()
+            }
+    except ValueError as e:
+        msg = (
+            "ValueError: Excel file format cannot be determined, you must specify an"
+            " engine manually."
+        )
+        if msg in str(e):
+            st.error(
+                "Sorry! I was not able to read this excel file, would you mind senging"
+                " us this file to figure out why? (also make sure it is an excel file"
+                " in .xlsx format)"
+            )
+            st.stop()
 
     if not REQUIRED_METADATA.issubset(set(metadata_dict.keys())):
         not_found = REQUIRED_METADATA - set(metadata_dict.keys())

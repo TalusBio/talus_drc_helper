@@ -573,20 +573,29 @@ class AnnotatedPlate:
                 x for x in grouping_cols if x in norm_factor_df.columns
             ]
 
-            norm_factor = (
-                norm_factor_df.groupby(norm_grouping_cols)
-                .mean(numeric_only=False)[value_column]
-                .reset_index()
-            )
-
-            to_normalize_df = to_normalize_df.merge(norm_factor, on=norm_grouping_cols)
-            to_normalize_df.rename(
-                columns={
-                    value_column + "_y": "NORM_FACTOR",
-                    value_column + "_x": value_column,
-                },
-                inplace=True,
-            )
+            if len(norm_grouping_cols):
+                norm_factor = (
+                    norm_factor_df.groupby(norm_grouping_cols)
+                    .mean(numeric_only=False)[value_column]
+                    .reset_index()
+                )
+                to_normalize_df = to_normalize_df.merge(
+                    norm_factor, on=norm_grouping_cols
+                )
+                to_normalize_df.rename(
+                    columns={
+                        value_column + "_y": "NORM_FACTOR",
+                        value_column + "_x": value_column,
+                    },
+                    inplace=True,
+                )
+            else:
+                logger.warning(
+                    "No grouping columns found. Using mean. "
+                    "This can happen if no cell lines are annotated for control wells."
+                )
+                norm_factor = norm_factor_df.mean()[value_column]
+                to_normalize_df["NORM_FACTOR"] = norm_factor
 
         return to_normalize_df
 

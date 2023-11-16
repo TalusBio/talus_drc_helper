@@ -44,7 +44,7 @@ def parse_metadata_sheet(data):
     for x in data:
         if len(x) < 2:
             continue
-        metadata_dict[x[0]] = ", ".join(x[1:])
+        metadata_dict[x[0].lower().replace(" ", "_")] = ", ".join(x[1:])
 
     return metadata_dict
 
@@ -74,8 +74,14 @@ def parse_tabular_sheet(data):
         "DMSO_%",
     ]
     tmp_df = tmp_df[keep]
+    tmp_df["Fluid_name"].fillna("", inplace=True)
     undispensed = tmp_df["Total_well_volume_(nL)"].isna()
     tmp_df = tmp_df[~undispensed]
+    max_dmso = tmp_df["Volume_(nL)_DMSO_normalization"].max()
+    dmso_wells = (tmp_df["Volume_(nL)_DMSO_normalization"] > (max_dmso * 0.9)) & (
+        tmp_df["Fluid_name"] == ""
+    )
+    tmp_df["Fluid_name"][dmso_wells] = "DMSO"
     return tmp_df
 
 
@@ -173,6 +179,9 @@ def make_templates_from_dispenser_xml(source, target_dir: Optional[Path] = None)
     }
     for v in metadata_dicts.values():
         v.update(out["metadata"])
+        v["user"] = ">>> MISSING <<<"
+        v["plate_id"] = ">>> MISSING <<<"
+        v["protocol_id"] = ">>> MISSING <<<"
 
     renames = {
         "Concentration": "concentration_in_um",
@@ -184,7 +193,7 @@ def make_templates_from_dispenser_xml(source, target_dir: Optional[Path] = None)
     keep = {}
     for plate_num, x in tmp_df.groupby("Plate"):
         x["Dispensed_row"] = np.array(list(ascii_uppercase))[
-            x["Dispensed_row"].values - 1
+            x["Dispensed_row"].astype(int).values - 1
         ]
         # x["Dispensed_col"] = x["Dispensed_col"].astype(str)
         x = x.set_index(["Dispensed_row", "Dispensed_col"])
@@ -214,5 +223,5 @@ def make_templates_from_dispenser_xml(source, target_dir: Optional[Path] = None)
         target_file = target_dir / spreadsheet_name
         target_html = target_dir / plots_html_name
         chart = v.plot()
-        chart.save(target_html)
+        chart.save(target_html, format="html")
         v.to_excel(str(target_file))
